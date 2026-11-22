@@ -36,7 +36,7 @@ local o = {
     --     http://127.0.0.1:7890       HTTP CONNECT proxy
     proxy = "",
     api_key = "",            -- optional Bearer key; include to see your pending submissions
-    tmdb_api_key = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI1NzlkZWYyZDY5ZWFlNDk4ZjJiOTI4MTgyNDdjM2ViMCIsInN1YiI6IjY2MjdmMGJlNjJmMzM1MDE0YmQ4NTFmMiIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.h3KpPvkiaz8uNz1bntAKqsPrxG_4UUWaY3kYME6N6m8",
+    tmdb_api_key = "",
     auto_detect = "yes",     -- when no id is given, look the media up on TMDB from the filename
     tmdb_id = "",            -- manual override
     imdb_id = "",            -- manual override (fallback when no tmdb_id)

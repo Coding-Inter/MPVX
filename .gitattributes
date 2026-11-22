@@ -1,0 +1,13 @@
+# 所有文本文件统一用 LF 存储和签出
+* text=auto eol=lf
+
+# 明确这些必须是 LF（mpv 配置对 CRLF 敏感）
+*.conf   text eol=lf
+*.lua    text eol=lf
+*.bat    text eol=crlf
+
+# 二进制，别碰
+*.exe    binary
+*.dll    binary
+*.ttf    binary
+*.glsl   text eol=lf

@@ -1,0 +1,20 @@
+# ---- mpv 可执行文件 / 二进制 ----
+mpv.exe
+mpv.com
+*.dll
+
+# ---- 运行时缓存与状态（自动重建，别传）----
+portable_config/_cache/
+portable_config/cache/
+portable_config/watch_later/
+portable_config/watch_history.jsonl
+portable_config/logs/
+portable_config/screenshot/
+
+# ---- 含密钥的本地配置 ----
+portable_config/script-opts/theintrodb.conf
+
+# ---- 系统文件 ----
+Thumbs.db
+desktop.ini
+.DS_Store

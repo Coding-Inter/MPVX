@@ -1,0 +1,79 @@
+# 复制此文件为 theintrodb.conf 并填入你自己的 key
+# 申请地址：https://theintrodb.org/
+# TheIntroDB mpv script configuration
+# Copy this file to script-opts/theintrodb.conf and edit.
+# Option values can also be passed on the command line:
+#   mpv --script-opts=theintrodb-tmdb_id=12345 video.mkv
+#   mpv --script-opts=theintrodb-tmdb_id=16085,theintrodb-season=1,theintrodb-episode=4 "video.mp4"
+
+# API base URL
+api_url=https://api.theintrodb.org/v4/media
+
+# ---------------------------------------------------------------------------
+# 代理设置
+# ---------------------------------------------------------------------------
+# 这个脚本用 curl 发两个请求：查 TheIntroDB 的 API，以及在需要自动识别片名时
+# 查 TMDB。下面这一项对两个请求同时生效。
+#
+# 留空 = 不给 curl 传 --proxy 参数，curl 会退回它自己的环境变量
+#        （ALL_PROXY / HTTPS_PROXY / HTTP_PROXY），这些也没有时就是直连。
+#        换到不需要代理的网络时，把下面这行改成 proxy= 即可。
+#
+# 支持的写法：
+#   socks5h://127.0.0.1:10808    SOCKS5，域名交给代理解析（推荐，最省事）
+#   socks5://127.0.0.1:10808     SOCKS5，域名在本地解析
+#   http://127.0.0.1:7890        HTTP 代理（CONNECT 隧道）
+#   socks4://127.0.0.1:1080      SOCKS4
+#
+# 带账号密码时：socks5h://用户名:密码@127.0.0.1:10808
+# 密码里若有特殊字符，curl 要求写成 URL 编码（例如 @ → %40）。
+#
+# 注意：这里只影响本脚本发出的请求，不影响 mpv 自己的 ytdl 等网络功能。
+proxy=socks5h://127.0.0.1:10808
+
+# Optional API key (Bearer). Without it only accepted submissions are
+# returned; with it your own pending+accepted submissions are included.
+api_key=
+
+# TMDB read API key used for automatic media detection from the filename.
+# The default below is a public read-only key (safe to embed).
+tmdb_api_key=
+
+# When no tmdb_id/imdb_id is given (filename or options), search TMDB using
+# the cleaned-up filename to find the media automatically.
+auto_detect=yes
+
+# Manual identification overrides (empty = try to parse from filename)
+# changing this will override identification globally, you must change it per media (recommended to leave untouched)
+#tmdb_id=
+#imdb_id=
+#season=
+#episode=
+#duration_ms=
+
+# Auto-skip intro & recap segments as soon as playback enters them
+auto_skip=yes
+auto_skip_types=intro,recap
+
+# Key bindings (empty = not bound)
+# Note: defaults avoid conflicts with flower-mpv-config / mpv defaults
+key_skip_intro=Alt+i
+key_skip_recap=Alt+r
+key_skip_credits=Alt+u
+key_skip_preview=
+key_skip_next=n
+key_toggle_ui=Ctrl+Alt+i
+key_toggle_auto_skip=Alt+a
+
+# Clickable on-screen button bar (toggle with key_toggle_ui)
+mouse_buttons=yes
+
+# OSD notifications
+show_osd=yes
+
+# Failed fetch retry: base seconds, doubled per attempt. A 429 is the exception
+# -- it waits the time the API names (10s for a burst, up to 14 hours for a spent
+# daily budget), and a spent budget stops the retries until the window rolls over
+# rather than burning all four on requests that cannot succeed yet.
+#etry_secs=5
+max_retries=4

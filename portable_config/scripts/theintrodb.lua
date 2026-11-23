@@ -128,6 +128,41 @@ local function fmt_time(secs)
 end
 
 -- ---------------------------------------------------------------------------
+-- colored seekbar segments (consumed by ModernZ)
+-- ---------------------------------------------------------------------------
+-- TheIntroDB calls the credits segment "credits"; ModernZ colors the seekbar by
+-- kind and knows "outro" / "post_credits" instead. Map so credits gets its own
+-- color rather than silently falling back to the intro color.
+local SEGMENT_KIND_MAP = {
+    intro   = "intro",
+    recap   = "recap",
+    credits = "outro",
+    preview = "preview",
+}
+
+-- Publish the current segments for the OSC to draw. ModernZ observes
+-- user-data/jumpskip/segments, so this is a one-way broadcast; no other script
+-- needs to be installed. Passing an empty list clears the highlights.
+local function publish_segments()
+    local duration = mp.get_property_number("duration") or 0
+    local out = {}
+    for _, seg in ipairs(tidb.segments) do
+        local kind = SEGMENT_KIND_MAP[seg.kind]
+        if kind and seg.start then
+            out[#out + 1] = {
+                kind    = kind,
+                start   = seg.start,
+                -- A missing end means "until the end of the file". ModernZ
+                -- treats nil the same way, but send the concrete duration so
+                -- the value survives any consumer that expects a number.
+                ["end"] = seg["end"] or (duration > 0 and duration or nil),
+            }
+        end
+    end
+    mp.set_property_native("user-data/jumpskip/segments", out)
+end
+
+-- ---------------------------------------------------------------------------
 -- identification: tmdb/imdb id + season/episode from filename & options
 -- ---------------------------------------------------------------------------
 -- split a comma-separated list, trimmed ("intro, recap" -> {"intro","recap"})
@@ -485,6 +520,7 @@ build_segments = function(data)
     for _, seg in ipairs(tidb.segments) do
         tidb.segments_by_kind[seg.kind][#tidb.segments_by_kind[seg.kind] + 1] = seg
     end
+    publish_segments()
     hide_overlay()
     update_overlay()
 end
@@ -978,6 +1014,8 @@ local function on_file_loaded()
     if tidb.retry_timer then tidb.retry_timer:kill() end
     tidb.retry_timer = nil
     hide_overlay()
+    -- wipe the previous file's highlights so they never linger on the new one
+    publish_segments()
 
     -- store resolved ids so the fetch uses them
     tidb.tmdb_id = tmdb_id
@@ -1037,6 +1075,8 @@ mp.register_event("end-file", function()
     tidb.file_key = nil
     tidb.media = nil
     tidb.segments = {}
+    -- clear the seekbar highlights together with the internal state
+    publish_segments()
 end)
 
 -- debug hook: expose internals for the test harness (no-op in real mpv)

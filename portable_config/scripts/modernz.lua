@@ -1534,11 +1534,20 @@ local function prepare_jumpskip_ranges(element)
             ex = limit_range(0, bar_w, ex)
             if ex > sx then
                 local color = user_opts["jumpskip_" .. tostring(seg.kind) .. "_color"] or user_opts.jumpskip_intro_color
+                -- Honour the chapter gaps: a highlight that spans a chapter
+                -- boundary must break there too, otherwise it paints straight
+                -- over the gap and the chapter marker disappears.
+                -- excluded is intentionally nil here — a segment must not mask
+                -- itself out of its own highlight.
                 local clip = assdraw.ass_new()
-                append_bar_clip_rect(clip, element, sx, ex)
-                ranges[#ranges + 1] = {sx, ex, color = color,
-                    clip = string.format("{\\clip(%d,%s)}", clip.scale, clip.text)}
-                mask:merge(clip)
+                append_bar_intersections(clip, element, sx, ex, get_bar_sections(element, nil))
+                if clip.text ~= "" then
+                    ranges[#ranges + 1] = {sx, ex, color = color,
+                        clip = string.format("{\\clip(%d,%s)}", clip.scale, clip.text)}
+                    -- The mask carves the highlight out of the layers underneath,
+                    -- so it has to cover the same gap-split pieces.
+                    mask:merge(clip)
+                end
             end
         end
     end

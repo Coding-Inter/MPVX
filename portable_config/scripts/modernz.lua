@@ -156,6 +156,11 @@ local user_opts = {
     nibble_color = "#FF8232",              -- color of chapter nibbles on the seekbar
     nibble_current_color = "#FFFFFF",      -- color of the current chapter nibble on the seekbar
     ab_loop_color = "#2596be",             -- color of the A/B loop range on the seekbar
+    jumpskip_intro_color = "#00a5ff",      -- color of intro segment highlights on the seekbar
+    jumpskip_recap_color = "#f8bc3a",      -- color of recap segment highlights on the seekbar
+    jumpskip_outro_color = "#e75c6c",      -- color of outro/credits segment highlights on the seekbar
+    jumpskip_preview_color = "#43cb44",    -- color of preview segment highlights on the seekbar
+    jumpskip_post_credits_color = "#FF6A00", -- color of post-credits segment highlights on the seekbar
 
     osc_fade_strength = 100,               -- strength of the OSC background fade (0 to disable)
     fade_blur_strength = 100,              -- blur strength for the OSC alpha fade. caution: high values can take a lot of CPU time to render
@@ -640,6 +645,7 @@ local state = {
     playtime_hour_force_init = false,       -- used to force request_init() once
     persistent_seekbar_element = nil,
     seekbar_element = nil,
+    jumpskip_segments = nil,                -- colored segment data from user-data/jumpskip/segments
     persistent_progress_toggle = user_opts.persistent_progress,
     user_subpos = mp.get_property_number("sub-pos") or 100,
     osc_adjusted_subpos = nil,
@@ -1226,7 +1232,7 @@ local function prepare_elements()
             local slider_lo = element.layout.slider
             -- layout is (re)built whenever the geometry or options change, so this
             -- is the right place to drop the derived pixel caches
-            element.gap_cache, element.section_cache = nil, nil
+            element.gap_cache, element.section_cache, element.jumpskip_cache = nil, nil, nil
             -- calculate positions of min and max points
             element.slider.min.ele_pos = user_opts.seek_handle_size > 0 and (user_opts.seek_handle_size * elem_geo.h / 2) or slider_lo.border
             element.slider.max.ele_pos = elem_geo.w - element.slider.min.ele_pos
@@ -1472,6 +1478,82 @@ local function draw_ab_loop_range(element, elem_ass, excluded)
     draw_bar_outline(element, elem_ass)
 end
 
+-- Prepare matching masks for colored segment highlights and the fills
+-- underneath them. ASS clips use screen coordinates, while the bar's drawing
+-- uses local coordinates. Removing the underlying fills avoids stacked
+-- antialiased edges during fades.
+local function prepare_jumpskip_ranges(element)
+    if not element or not element.layout then return {} end
+    local cached = element.jumpskip_cache
+    if cached and cached.segments == state.jumpskip_segments and cached.duration == state.duration then
+        return cached.ranges, cached.clip
+    end
+    local ranges = {}
+    local segs = state.jumpskip_segments
+    cached = {segments = segs, duration = state.duration, ranges = ranges}
+    element.jumpskip_cache = cached
+    if type(segs) ~= "table" or #segs == 0
+        or not state.duration or state.duration <= 0 then return ranges end
+    local elem_geo = element.layout.geometry
+    local bar_w = elem_geo.w
+    local mask = assdraw.ass_new()
+    -- Slider element positions (inset by handle radius when seek_handle_size > 0)
+    local min_ele_pos = element.slider.min.ele_pos
+    local max_ele_pos = element.slider.max.ele_pos
+    local slider_w = max_ele_pos - min_ele_pos
+    for _, seg in ipairs(segs) do
+        local s = tonumber(seg.start) or 0
+        -- A missing/zero end means "runs to the end of the file". Treating it
+        -- as 0 would make the segment look empty and drop it entirely, which
+        -- would hide exactly the outro segments users care about most.
+        local e = tonumber(seg["end"])
+        if not e or e <= 0 then e = state.duration end
+        if e > s and s < state.duration then
+            -- Snap intro starting near 0 and outro ending near video duration
+            local snapped_start = false
+            local snapped_end = false
+            if s <= 0.5 then
+                s = 0
+                snapped_start = true
+            end
+            if (seg.kind == "outro" or seg.kind == "post_credits" or state.duration - e <= 2.0) and e >= state.duration - 5.0 then
+                e = state.duration
+                snapped_end = true
+            end
+            -- Map time to slider element position range (same as progress bar's right edge)
+            local sx = min_ele_pos + (math.max(0, s) / state.duration) * slider_w
+            local ex = min_ele_pos + (math.min(e, state.duration) / state.duration) * slider_w
+            -- Endpoint segments include the outer caps beyond the handle's range.
+            if snapped_start then sx = 0 end
+            if snapped_end then ex = bar_w end
+            -- Clamp to valid drawing range
+            sx = limit_range(0, bar_w, sx)
+            ex = limit_range(0, bar_w, ex)
+            if ex > sx then
+                local color = user_opts["jumpskip_" .. tostring(seg.kind) .. "_color"] or user_opts.jumpskip_intro_color
+                local clip = assdraw.ass_new()
+                append_bar_clip_rect(clip, element, sx, ex)
+                ranges[#ranges + 1] = {sx, ex, color = color,
+                    clip = string.format("{\\clip(%d,%s)}", clip.scale, clip.text)}
+                mask:merge(clip)
+            end
+        end
+    end
+    if #ranges == 0 then return ranges end
+    cached.clip = string.format("{\\iclip(%d,%s)}", mask.scale, mask.text)
+    return ranges, cached.clip
+end
+
+-- Crop the full bar silhouette instead of giving each range its own corners.
+-- Even a range narrower than a cap keeps exactly the same outer curve.
+local function draw_jumpskip_ranges(element, elem_ass, ranges)
+    if element.name ~= "seekbar" then return end
+    for _, range in ipairs(ranges) do
+        begin_draw_layer(element, elem_ass, range.color, nil, range.clip)
+        draw_bar_outline(element, elem_ass)
+    end
+end
+
 local function draw_seekbar_nibbles(element, elem_ass, excluded)
     local slider_lo = element.layout.slider
     local elem_geo = element.layout.geometry
@@ -1577,8 +1659,12 @@ local function draw_seekbar_progress(element, elem_ass, excluded, anim_override,
 end
 
 local function render_elements(master_ass, osc_vis, wc_vis)
+    local jumpskip_ranges, jumpskip_clip = prepare_jumpskip_ranges(state.seekbar_element)
     local function render_element(n)
         local element = elements[n]
+
+        -- colored segment highlights carve holes out of every other seekbar layer
+        local excluded = element.name == "seekbar" and jumpskip_ranges or nil
 
         -- skip elements whose group is not currently visible
         local is_top = element.layout.group == "top"
@@ -1653,6 +1739,11 @@ local function render_elements(master_ass, osc_vis, wc_vis)
 
         elem_ass:merge(style_ass)
 
+        -- knock the colored highlight ranges out of the bar's own background
+        if element.name == "seekbarbg" and jumpskip_clip then
+            elem_ass:append(jumpskip_clip)
+        end
+
         if element.type ~= "button" then
             elem_ass:merge(element.static_ass)
         end
@@ -1664,12 +1755,13 @@ local function render_elements(master_ass, osc_vis, wc_vis)
                 local s_min = element.slider.min.value
                 local s_max = element.slider.max.value
 
-                draw_seekbar_nibbles(element, elem_ass)
+                draw_seekbar_nibbles(element, elem_ass, excluded)
 
                 local handle_x, handle_radius, is_active = get_seekbar_handle_pos(element) -- get handle position/radius
-                draw_seekbar_progress(element, elem_ass, nil, anim_override)
-                draw_seekbar_ranges(element, elem_ass, handle_x, handle_radius)
-                draw_ab_loop_range(element, elem_ass)
+                draw_seekbar_progress(element, elem_ass, excluded, anim_override)
+                draw_seekbar_ranges(element, elem_ass, handle_x, handle_radius, nil, nil, excluded)
+                draw_ab_loop_range(element, elem_ass, excluded)
+                draw_jumpskip_ranges(element, elem_ass, jumpskip_ranges)
                 draw_seekbar_handle(element, elem_ass, handle_x, handle_radius, anim_override, is_active) -- draw handle on top of progress
 
                 elem_ass:draw_stop()
@@ -4166,6 +4258,7 @@ end
 mp.register_event("shutdown", function()
     reset_margins()
     mp.del_property("user-data/osc")
+    mp.del_property("user-data/jumpskip/osc-colors")
 end)
 mp.register_event("file-loaded", function()
     is_image() -- check if file is an image
@@ -4242,6 +4335,12 @@ observe_cached("eof-reached", request_tick)
 observe_cached("ontop", request_init)
 observe_cached("speed", request_tick)
 observe_cached("chapter", request_tick)
+-- Colored segment data, published by a skip script such as theintrodb.lua.
+-- Format: { {kind="intro", start=12.5, ["end"]=103.0}, ... } in seconds.
+mp.observe_property("user-data/jumpskip/segments", "native", function(_, val)
+    state.jumpskip_segments = val
+    request_tick()
+end)
 -- ensure compatibility with auto loop scripts
 mp.observe_property("loop-file", "bool", function(_, val)
     state.file_loop = (val ~= false)
@@ -4487,6 +4586,8 @@ local function validate_user_opts()
         user_opts.seekbar_cache_color, user_opts.hover_effect_color, user_opts.windowcontrols_close_hover, user_opts.windowcontrols_max_hover,
         user_opts.windowcontrols_min_hover, user_opts.cache_info_color, user_opts.thumbnail_box_outline, user_opts.nibble_color,
         user_opts.nibble_current_color, user_opts.seek_handle_color, user_opts.ab_loop_color,
+        user_opts.jumpskip_intro_color, user_opts.jumpskip_outro_color, user_opts.jumpskip_recap_color,
+        user_opts.jumpskip_preview_color, user_opts.jumpskip_post_credits_color,
     }
 
     for _, color in pairs(colors) do
@@ -4494,6 +4595,16 @@ local function validate_user_opts()
             msg.warn("'" .. color .. "' is not a valid color")
         end
     end
+
+    -- publish the resolved segment colors so a skip script can match them
+    local segment_colors = {}
+    for _, kind in ipairs({"intro", "recap", "outro", "preview", "post_credits"}) do
+        local color = user_opts["jumpskip_" .. kind .. "_color"]
+        if color:match("^#%x%x%x%x%x%x$") then
+            segment_colors[kind] = osc_color_convert(color)
+        end
+    end
+    mp.set_property_native("user-data/jumpskip/osc-colors", segment_colors)
 
     state.visibility_modes = {}
     for str in string.gmatch(user_opts.visibility_modes, "([^_]+)") do

@@ -160,7 +160,6 @@ local user_opts = {
     jumpskip_recap_color = "#f8bc3a",      -- color of recap segment highlights on the seekbar
     jumpskip_outro_color = "#e75c6c",      -- color of outro/credits segment highlights on the seekbar
     jumpskip_preview_color = "#43cb44",    -- color of preview segment highlights on the seekbar
-    jumpskip_post_credits_color = "#FF6A00", -- color of post-credits segment highlights on the seekbar
 
     osc_fade_strength = 100,               -- strength of the OSC background fade (0 to disable)
     fade_blur_strength = 100,              -- blur strength for the OSC alpha fade. caution: high values can take a lot of CPU time to render
@@ -1516,6 +1515,10 @@ local function prepare_jumpskip_ranges(element)
                 s = 0
                 snapped_start = true
             end
+            -- Extend a trailing segment to the very end of the bar. "post_credits"
+            -- has no color option here on purpose (TheIntroDB never emits it),
+            -- but the kind is still honoured so a script that does send it snaps
+            -- to the same edge and falls back to the intro color.
             if (seg.kind == "outro" or seg.kind == "post_credits" or state.duration - e <= 2.0) and e >= state.duration - 5.0 then
                 e = state.duration
                 snapped_end = true
@@ -4587,7 +4590,7 @@ local function validate_user_opts()
         user_opts.windowcontrols_min_hover, user_opts.cache_info_color, user_opts.thumbnail_box_outline, user_opts.nibble_color,
         user_opts.nibble_current_color, user_opts.seek_handle_color, user_opts.ab_loop_color,
         user_opts.jumpskip_intro_color, user_opts.jumpskip_outro_color, user_opts.jumpskip_recap_color,
-        user_opts.jumpskip_preview_color, user_opts.jumpskip_post_credits_color,
+        user_opts.jumpskip_preview_color,
     }
 
     for _, color in pairs(colors) do
@@ -4598,7 +4601,7 @@ local function validate_user_opts()
 
     -- publish the resolved segment colors so a skip script can match them
     local segment_colors = {}
-    for _, kind in ipairs({"intro", "recap", "outro", "preview", "post_credits"}) do
+    for _, kind in ipairs({"intro", "recap", "outro", "preview"}) do
         local color = user_opts["jumpskip_" .. kind .. "_color"]
         if color:match("^#%x%x%x%x%x%x$") then
             segment_colors[kind] = osc_color_convert(color)
